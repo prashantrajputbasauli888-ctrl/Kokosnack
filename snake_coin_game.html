@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Snake Coin Game</title>
+<style>
+  :root { color-scheme: dark; --bg:#101827; --panel:#182438; --green:#55e58a; --gold:#ffd34e; --text:#f4f7fb; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; padding:18px; background:radial-gradient(circle at top,#203653,#0c1421 65%); color:var(--text); font-family:system-ui,Arial,sans-serif; }
+  .game { width:min(100%,520px); text-align:center; }
+  h1 { margin:0 0 6px; font-size:clamp(27px,7vw,38px); }
+  .sub { margin:0 0 18px; color:#b9c7d9; font-size:14px; }
+  .stats { display:flex; gap:10px; margin-bottom:12px; }
+  .stat { flex:1; padding:12px 8px; border-radius:14px; background:var(--panel); border:1px solid #2b3c55; }
+  .stat span { display:block; color:#b9c7d9; font-size:12px; }
+  .stat strong { font-size:22px; }
+  canvas { display:block; width:100%; aspect-ratio:1; background:#0a1320; border:2px solid #38506d; border-radius:16px; box-shadow:0 16px 45px #0007; touch-action:none; }
+  .actions { display:flex; gap:10px; margin-top:12px; }
+  button { border:0; border-radius:12px; padding:12px 16px; font-weight:700; font-size:15px; color:#0b1723; background:var(--green); cursor:pointer; }
+  button.secondary { background:#d7e2ef; }
+  .actions button { flex:1; }
+  .pad { width:190px; margin:14px auto 0; display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+  .pad button { padding:11px 0; font-size:20px; background:#263a54; color:white; border:1px solid #405876; }
+  .pad .empty { visibility:hidden; }
+  .hint { color:#aebed1; font-size:12px; margin:12px 0 0; line-height:1.5; }
+  #message { min-height:22px; margin:10px 0 0; color:var(--gold); font-weight:700; }
+</style>
+</head>
+<body>
+<main class="game">
+  <h1>🐍 Snake Coin</h1>
+  <p class="sub">खाना खाओ, कॉइन्स इकट्ठा करो और अपना रिकॉर्ड बनाओ!</p>
+  <section class="stats">
+    <div class="stat"><span>इस गेम के कॉइन्स</span><strong id="coins">0</strong></div>
+    <div class="stat"><span>स्कोर</span><strong id="score">0</strong></div>
+    <div class="stat"><span>बेस्ट स्कोर</span><strong id="best">0</strong></div>
+  </section>
+  <canvas id="board" width="400" height="400" aria-label="Snake game board"></canvas>
+  <div id="message">शुरू करने के लिए Start दबाएँ</div>
+  <div class="actions">
+    <button id="start">▶ Start / Restart</button>
+    <button class="secondary" id="pause">Ⅱ Pause</button>
+  </div>
+  <div class="pad" aria-label="Touch controls">
+    <span class="empty"></span><button data-dir="up">▲</button><span class="empty"></span>
+    <button data-dir="left">◀</button><button data-dir="down">▼</button><button data-dir="right">▶</button>
+  </div>
+  <p class="hint">कंप्यूटर: Arrow Keys या WASD इस्तेमाल करें। मोबाइल: नीचे दिए बटन दबाएँ या गेम बोर्ड पर swipe करें।<br>ये सिर्फ गेम के अंदर इस्तेमाल होने वाले वर्चुअल कॉइन्स हैं—इनकी कोई असली पैसे की कीमत या निकासी नहीं है।</p>
+</main>
+<script>
+(() => {
+  const canvas = document.getElementById('board');
+  const ctx = canvas.getContext('2d');
+  const size = 20, cells = 20;
+  const $ = id => document.getElementById(id);
+  let snake, food, dir, nextDir, score, coins, timer, running = false, paused = false;
+  let best = Number(localStorage.getItem('snakeCoinBest') || 0);
+  $('best').textContent = best;
+
+  function randomFood() {
+    let p;
+    do { p = {x:Math.floor(Math.random()*cells), y:Math.floor(Math.random()*cells)}; }
+    while (snake.some(s => s.x===p.x && s.y===p.y));
+    return p;
+  }
+  function reset() {
+    clearInterval(timer);
+    snake = [{x:10,y:10},{x:9,y:10},{x:8,y:10}];
+    dir = {x:1,y:0}; nextDir = {...dir};
+    score = 0; coins = 0; food = randomFood();
+    running = true; paused = false;
+    $('coins').textContent = coins; $('score').textContent = score;
+    $('message').textContent = 'खेल जारी है — कॉइन पकड़ो!';
+    $('pause').textContent = 'Ⅱ Pause';
+    draw(); timer = setInterval(tick, 125);
+  }
+  function endGame() {
+    clearInterval(timer); running = false;
+    $('message').textContent = 'गेम ओवर! Restart दबाकर फिर खेलें।';
+    if (score > best) { best = score; localStorage.setItem('snakeCoinBest', best); $('best').textContent = best; }
+    draw();
+  }
+  function setDirection(d) {
+    if (!running) return;
+    const map = {up:{x:0,y:-1},down:{x:0,y:1},left:{x:-1,y:0},right:{x:1,y:0}};
+    const n = map[d];
+    if (n && !(n.x === -dir.x && n.y === -dir.y)) nextDir = n;
+  }
+  function tick() {
+    if (!running || paused) return;
+    dir = nextDir;
+    const head = {x:snake[0].x+dir.x, y:snake[0].y+dir.y};
+    if (head.x<0 || head.y<0 || head.x>=cells || head.y>=cells ||
+        snake.slice(0,-1).some(s=>s.x===head.x && s.y===head.y)) return endGame();
+    snake.unshift(head);
+    if (head.x===food.x && head.y===food.y) {
+      score += 10; coins += 1; food = randomFood();
+      $('score').textContent = score; $('coins').textContent = coins;
+      $('message').textContent = 'शाबाश! +1 वर्चुअल कॉइन';
+    } else snake.pop();
+    draw();
+  }
+  function draw() {
+    ctx.fillStyle = '#0a1320'; ctx.fillRect(0,0,400,400);
+    ctx.strokeStyle = '#15263a'; ctx.lineWidth = 1;
+    for(let i=0;i<=cells;i++){ctx.beginPath();ctx.moveTo(i*size,0);ctx.lineTo(i*size,400);ctx.stroke();ctx.beginPath();ctx.moveTo(0,i*size);ctx.lineTo(400,i*size);ctx.stroke();}
+    if(food){ctx.fillStyle='#ffd34e';ctx.beginPath();ctx.arc(food.x*size+10,food.y*size+10,8,0,Math.PI*2);ctx.fill();ctx.fillStyle='#fff3b0';ctx.beginPath();ctx.arc(food.x*size+7,food.y*size+7,2,0,Math.PI*2);ctx.fill();}
+    if(snake) snake.forEach((s,i)=>{ctx.fillStyle=i===0?'#8cffb1':'#35bd70';ctx.beginPath();ctx.roundRect(s.x*size+1,s.y*size+1,18,18,5);ctx.fill();});
+    if(paused){ctx.fillStyle='#0009';ctx.fillRect(0,0,400,400);ctx.fillStyle='white';ctx.font='bold 30px system-ui';ctx.textAlign='center';ctx.fillText('PAUSED',200,210);}
+  }
+  $('start').addEventListener('click', reset);
+  $('pause').addEventListener('click', () => {
+    if(!running) return;
+    paused = !paused; $('pause').textContent = paused ? '▶ Resume' : 'Ⅱ Pause';
+    $('message').textContent = paused ? 'गेम रुका हुआ है' : 'खेल जारी है';
+    draw();
+  });
+  document.querySelectorAll('[data-dir]').forEach(b=>b.addEventListener('click',()=>setDirection(b.dataset.dir)));
+  document.addEventListener('keydown', e => {
+    const keys = {ArrowUp:'up',w:'up',W:'up',ArrowDown:'down',s:'down',S:'down',ArrowLeft:'left',a:'left',A:'left',ArrowRight:'right',d:'right',D:'right'};
+    if(keys[e.key]){e.preventDefault();setDirection(keys[e.key]);}
+    if(e.key===' ' && running){paused=!paused;$('pause').textContent=paused?'▶ Resume':'Ⅱ Pause';draw();}
+  });
+  let touchStart=null;
+  canvas.addEventListener('touchstart',e=>{const t=e.changedTouches[0];touchStart={x:t.clientX,y:t.clientY};},{passive:true});
+  canvas.addEventListener('touchend',e=>{
+    if(!touchStart)return;const t=e.changedTouches[0],dx=t.clientX-touchStart.x,dy=t.clientY-touchStart.y;
+    if(Math.max(Math.abs(dx),Math.abs(dy))>18)setDirection(Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'down':'up'));
+    touchStart=null;
+  },{passive:true});
+  snake=[{x:10,y:10}];food={x:14,y:10};draw();
+})();
+</script>
+</body>
+</html>
